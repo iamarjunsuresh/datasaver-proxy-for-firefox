@@ -3,7 +3,7 @@ DataSaver Proxy for firefox
 ==============
 DataSaver extension available in Google chrome is ported to Firefox.
 
-Addon is hosted at https://addons.mozilla.org/en-US/developers/addon/google_datasaver_for_firefox/edit
+Addon is hosted at https://addons.mozilla.org/en-US/firefox/addon/google_datasaver_for_firefox/
 
 
 
