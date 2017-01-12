@@ -28,8 +28,8 @@ var {Class} = require('sdk/core/heritage');
 var {Unknown} = require('sdk/platform/xpcom');
 var {Cc, Ci, Cu} = require("chrome");
 var prefsvc = require("sdk/preferences/service");
-var buttons = require("sdk/ui/button/toggle");
-var panels = require("sdk/panel");
+
+
 var data = require("sdk/self").data;
 var ss = require("sdk/simple-storage");
 var tabs = require("sdk/tabs");
@@ -37,34 +37,42 @@ var tablib = require("sdk/tabs/utils");
 var events = require("sdk/system/events");
 var { setInterval , clearInterval } = require("sdk/timers");
 
-var button;
 var proxy_http = "network.proxy.http";
 var proxy_port = "network.proxy.http_port";
 var proxy_type = "network.proxy.type";
 var proxy_exclude = "network.proxy.no_proxies_on";
 var google_proxy = {url: "proxy.googlezip.net", port: 80, type: 1}
-var timerid=null;
+
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
+Cu.import('resource://gre/modules/Console.jsm');
+const { Services } = require("resource://gre/modules/Services.jsm");
+
 
 exports.onUnload = function (reason) {
 
     if (reason == "uninstall" || reason == "disable") {
         httprequestobserver.unregister();
-        
+        //reset_proxy_state();
         ss.storage.enabled = 0;
         //  console.log("disabled");
         proxy_filter.unregister_filter();
+
+removemenu(getNativeWindow());
+
     }
-    if (reason == "shutdown") {
+    if (reason == "shutdown"||reason=="upgrade"||reason=="downgrade") {
         httprequestobserver.unregister();
-      
+        // reset_proxy_state();
         proxy_filter.unregister_filter();
+removemenu(getNativeWindow());
     }
 
 }
-exports.main = function (reason,callback) {
-//console.error("install trigger worked:"+reason.loadReason);
-    if (reason.loadReason == "install" || reason.loadReason == "enable") {
+
+exports.main = function (reason) {
+//console.error("install triggered"+reason.loadReason);
+
+    if (reason.loadReason == "install" ||reason.loadReason=="upgrade"|| reason.loadReason == "enable") {
 // setting storage
         if (ss.storage.version ==null ) {
             console.log("v1.5 completed");
@@ -88,103 +96,400 @@ exports.main = function (reason,callback) {
 if(prefsvc.get(proxy_type,0)==1&&prefsvc.get(proxy_http,"")=="proxy.googlezip.net"){reset_proxy_state();}
             ss.storage.bypassurls = [];
             ss.storage.user_bypassurls = [];
-            tabs.open("http://www.advancedbytes.in/version?ver=1.7&tmode=1");
+            tabs.open("http://www.advancedbytes.in/version?ver=2.2&tmode=1");
             ss.storage.version = "1.7";
         }
         if(ss.storage.version=="1.7")
-{
-ss.storage.disable_reason="";
+        {
+        ss.storage.disable_reason="";
 ss.storage.allowinprivate=0;
-ss.storage.version="1.9";
+        ss.storage.version="2.2";
+        
+        }
 
 
-
-}
-
-
-      
+        httprequestobserver.register();
+        proxy_filter.register_filter();
 
 
 
         ss.storage.enabled = 1;
-              private_browsing_hook();
-//main
-if(ss.storage.enabled)
-{
-
-    enable_saver();
-if(ss.storage.allowinprivate==0)
-{
-enable_checking();
-
-
-}
-}
+addmenu(getNativeWindow());
 //("enabled");
     }
-    if (reason.loadReason == "startup") {
-console.log("called startup:");
-       private_browsing_hook();
-//main
-if(ss.storage.enabled)
-{
-
-    enable_saver();
-if(ss.storage.allowinprivate==0)
-{
-enable_checking();
+    if (reason.loadReason == "startup"||reason=="upgrade"||reason=="downgrade") {
 
 
-}
-}
+
+        if (ss.storage.enabled) {
+
+           enable_checking();
+          enable_saver();
+          
+
+
+        }
+addmenu(getNativeWindow());
     }
 
 
 }
-
-
-// if case install trigger failed
-
-
-// setting storage
-        if (ss.storage.version ==null ) {
-            console.log("v1.5 completed");
-            ss.storage.total_compressed = 0;
-            ss.storage.enabled = 1;
-            ss.storage.total_original = 0;
-            ss.storage.total_saved = 0;
-
-            ss.storage.monthly_savings = 0
-            ss.storage.daily_savings = 0;
-            ss.storage.current_day = -1;
-            ss.storage.current_month = -1;
-
-            ss.storage.version = "1.5";
-
-
-        }
-        if (ss.storage.version == "1.5") {
-            console.log("v1.7 completed");
- // settings from older version
-if(prefsvc.get(proxy_type,0)==1&&prefsvc.get(proxy_http,"")=="proxy.googlezip.net"){reset_proxy_state();}
-            ss.storage.bypassurls = [];
-            ss.storage.user_bypassurls = [];
-            tabs.open("http://www.advancedbytes.in/version?ver=1.7&tmode=1");
-            ss.storage.version = "1.7";
-        }
-        if(ss.storage.version=="1.7")
+var parent=null;
+var addsitemenu=null;
+var showstatsmenu=null;
+function addmenu(nw){
+  if(showstatsmenu==null)
+  {
+   showstatsmenu = nw.menu.add({
+    name: "GDSP:Show Stats",
+    icon: data.url("ico1.png"),
+   
+    callback: function(){
+// show stats and options 
+//console.error(ss.storage.allowinprivate);
+tabs.open({
+            url:data.url("savings.html") ,
+            inBackground:false,
+          
+        onReady:function(tab)
+{ var x=tab.attach({
+      contentScriptFile: [ data.url("stats.js")],
+     contentScriptOptions: {
+                    t: ss.storage.total_original,
+                    s: ss.storage.total_saved,
+                    enabled: ss.storage.enabled,
+                    mbd: ss.storage.daily_savings,
+                    mbm: ss.storage.monthly_savings,
+                    allowprivate:ss.storage.allowinprivate,
+                    dreason:ss.storage.disable_reason
+                }
+});
+register_cbs(x);
+}});
+  
+    }}
+  );
+  }
+  if(addsitemenu==null)
+  {
+   addsitemenu = nw.menu.add({
+    name: "GDSP:Add site to WhiteList",
+    icon: data.url("ico1.png"),
+     
+    callback: function(){
+    add_ctab();
+    }});
+  }
+}
+function register_cbs(x)
 {
-ss.storage.disable_reason="";
-ss.storage.allowinprivate=0;
-ss.storage.version="1.9";
+x.port.on("toggle_status", function () {
+            toggle_data_saver();
+       });
+ x.port.on("toggle_private",function(){
+             toggle_private();
+        });
+ x.port.on("rateurl", function () {
+            tabs.open("https://addons.mozilla.org/addon/google_datasaver_for_firefox?src=external-fromaddon");
 
-    ss.storage.enabled = 1;
+        });
+        x.port.on("learnurl", function () {
+            tabs.open("http://www.advancedbytes.in");
+        });
+        x.port.on("reset_month", function () {
+            ss.storage.monthly_savings = 0;
+        });
+        x.port.on("reset_daily", function () {
+            ss.storage.daily_savings = 0;
+        });
+        x.port.on("edit-white-list", show_whitelistpanel);
+        
 
+
+
+
+
+
+
+
+
+
+
+
+
+}
+function add_ctab () {
+         /* These are TLDs that have an SLD */
+var tlds = {
+    "cy":true,
+    "ro":true,
+    "ke":true,
+    "kh":true,
+    "ki":true,
+    "cr":true,
+    "km":true,
+    "kn":true,
+    "kr":true,
+    "ck":true,
+    "cn":true,
+    "kw":true,
+    "rs":true,
+    "ca":true,
+    "kz":true,
+    "rw":true,
+    "ru":true,
+    "za":true,
+    "zm":true,
+    "bz":true,
+    "je":true,
+    "uy":true,
+    "bs":true,
+    "br":true,
+    "jo":true,
+    "us":true,
+    "bh":true,
+    "bo":true,
+    "bn":true,
+    "bb":true,
+    "ba":true,
+    "ua":true,
+    "eg":true,
+    "ec":true,
+    "et":true,
+    "er":true,
+    "es":true,
+    "pl":true,
+    "in":true,
+    "ph":true,
+    "il":true,
+    "pe":true,
+    "co":true,
+    "pa":true,
+    "id":true,
+    "py":true,
+    "ug":true,
+    "ky":true,
+    "ir":true,
+    "pt":true,
+    "pw":true,
+    "iq":true,
+    "it":true,
+    "pr":true,
+    "sh":true,
+    "sl":true,
+    "sn":true,
+    "sa":true,
+    "sb":true,
+    "sc":true,
+    "sd":true,
+    "se":true,
+    "hk":true,
+    "sg":true,
+    "sy":true,
+    "sz":true,
+    "st":true,
+    "sv":true,
+    "om":true,
+    "th":true,
+    "ve":true,
+    "tz":true,
+    "vn":true,
+    "vi":true,
+    "pk":true,
+    "fk":true,
+    "fj":true,
+    "fr":true,
+    "ni":true,
+    "ng":true,
+    "nf":true,
+    "re":true,
+    "na":true,
+    "qa":true,
+    "tw":true,
+    "nr":true,
+    "np":true,
+    "ac":true,
+    "af":true,
+    "ae":true,
+    "ao":true,
+    "al":true,
+    "yu":true,
+    "ar":true,
+    "tj":true,
+    "at":true,
+    "au":true,
+    "ye":true,
+    "mv":true,
+    "mw":true,
+    "mt":true,
+    "mu":true,
+    "tr":true,
+    "mz":true,
+    "tt":true,
+    "mx":true,
+    "my":true,
+    "mg":true,
+    "me":true,
+    "mc":true,
+    "ma":true,
+    "mn":true,
+    "mo":true,
+    "ml":true,
+    "mk":true,
+    "do":true,
+    "dz":true,
+    "ps":true,
+    "lr":true,
+    "tn":true,
+    "lv":true,
+    "ly":true,
+    "lb":true,
+    "lk":true,
+    "gg":true,
+    "uk":true,
+    "gn":true,
+    "gh":true,
+    "gt":true,
+    "gu":true,
+    "jp":true,
+    "gr":true,
+    "nz":true
+}
+
+function isSecondLevelDomainPresent(domainParts) {
+    return typeof tlds[domainParts[domainParts.length-1]] != "undefined"&&typeof tlds[domainParts[domainParts.length-2]] != "undefined";
+}
+function getDomainFromHostname(url) {
+  domainParts = url.split(".");
+  var cutOff =2;
+  if (isSecondLevelDomainPresent(domainParts)) {
+    cutOff=3;
+  }
+  
+  return domainParts.slice(domainParts.length-cutOff, domainParts.length).join(".");
+}
+/*
+var url=tabs.activeTab.url;
+var proto=url.substr(0,url.indexOf("//"))
+var first=url.substr(url.indexOf("//")+2);
+var sec=first.substr(0,first.lastIndexOf("/"));
+var suffix=sec.substr(sec.lastIndexOf(".")+1);
+
+var d=sec.substr(0,sec.lastIndexOf("."))
+
+var domain;
+if(d.lastIndexOf(".")==-1)
+{
+domain=d;
+
+}else{domain=d.substr(d.lastIndexOf(".")+1);}*/
+
+//console.log(proto+"//"+"*."+domain+"."+suffix+"/*");
+var k=tabs.activeTab.url;
+var x=getNativeWindow();
+
+var proto=k.substr(0,k.indexOf("//")+2);
+var first=k.substr(k.indexOf("//")+2);
+var sec=first.substr(0,first.indexOf("/"));
+var url=proto+"*."+getDomainFromHostname(sec)+"/*";
+x.toast.show("Added Domain "+getDomainFromHostname(sec)+" to whitelist", "short");
+ss.storage.user_bypassurls.push(url);
+
+
+
+
+
+        }
+function show_whitelistpanel()
+{
+tabs.open({
+            url:data.url("wlist.html") ,
+            inBackground:false,
+          
+        onReady:function(ta)
+{ var x=ta.attach({
+      contentScriptFile: [data.url("wlist.js")],
+     contentScriptOptions: {list: ss.storage.user_bypassurls
+                  
+                }
+});
+  x.port.on("update-white-list", function (data) {
+        ss.storage.user_bypassurls = data.list;
+       ta.close(null);
+
+
+    });
+}});
+
+
+}
+function removemenu(nw) {
+if(addsitemenu!=null)
+{
+  nw.menu.remove(addsitemenu);
+addsitemenu=null;
+}
+if(showstatsmenu!=null)
+{
+  nw.menu.remove(showstatmenu);
+showstatmenu=null;
+}
 }
 
 
-   //main
-   
+
+
+
+
+function getNativeWindow() {
+
+	let window = Services.wm.getMostRecentWindow("navigator:browser");
+	return window.NativeWindow;
+
+}
+
+// in case install trigger failed
+
+
+if (ss.storage.version ==null ) {
+    console.log("v1.5 completed");
+    ss.storage.total_compressed = 0;
+    ss.storage.enabled = 1;
+    ss.storage.total_original = 0;
+    ss.storage.total_saved = 0;
+
+    ss.storage.monthly_savings = 0
+    ss.storage.daily_savings = 0;
+    ss.storage.current_day = -1;
+    ss.storage.current_month = -1;
+
+    ss.storage.version = "1.5";
+
+
+}
+if (ss.storage.version == "1.5") {
+    //console.log("v1.7 completed");
+    // setting from older version
+    if(prefsvc.get(proxy_type,0)==1&&prefsvc.get(proxy_http,"")=="proxy.googlezip.net"){reset_proxy_state();}
+    ss.storage.bypassurls = [];
+    ss.storage.user_bypassurls = [];
+    tabs.open("http://www.advancedbytes.in/version?ver=1.7&tmode=2");
+
+    ss.storage.version = "1.7";
+
+}
+
+ if(ss.storage.version=="1.7"){
+ ss.storage.disable_reason="";
+ss.storage.allowinprivate=0;
+        
+        ss.storage.version="1.9";
+        
+        }
+
+
+
+
 
 
  function reset_proxy_state() {
@@ -193,7 +498,6 @@ ss.storage.version="1.9";
         prefsvc.set(proxy_type, 0);
 
     }
-
 
 var proxyfilter = Class(
     {
@@ -209,13 +513,9 @@ var proxyfilter = Class(
             if (this.pps == null) {
                 this.init();
             }
-           try{
+            if (this.registerd == false) {
                 this.pps.registerFilter(this.get_filter(), 10);
-              
-            }
-            catch(ex)
-            {
-            console.log("Proxy filter register failed");
+                this.registerd = true;
             }
 
         },
@@ -223,13 +523,10 @@ var proxyfilter = Class(
             if (this.pps == null) {
                 init();
             }
-            try {
+            if (this.registerd == true) {
                 this.pps.unregisterFilter(this.get_filter());
-               
+                this.registerd = false;
             }
-            catch(ex)
-            {
-            console.log("Proxy filter unregister failed");}
         },
         get_filter: function () {
             if (this.filter != null) {
@@ -238,30 +535,11 @@ var proxyfilter = Class(
             else {
                 var google_proxy = this.pps.newProxyInfo("http", "proxy.googlezip.net", 80, 1, -1, null);
 
-                this.filter= {
+                this.filter = {
 
                     applyFilter: function (pps, uri, proxy) {
-
-                   
-           /*        
-                    var winMediator = Cc["@mozilla.org/appshell/window-mediator;1"].getService(Ci.nsIWindowMediator);
-                    var mrw = winMediator.getEnumerator("navigator:browser");
-                    while(mrw.hasMoreElements())
-                    {
-                    
-                    var win =mrw.getNext();
-                    gBrowser=win.gBrowser;
-                       var num = gBrowser.browsers.length;
-for (var i = 0; i < num; i++) {
-  var b = gBrowser.getBrowserAtIndex(i);
-if (require("sdk/private-browsing").isPrivate(b)){
-    console.log("private:"+b.currentURI.spec); 
-}}
-                    
-                  */ 
-                 
                         //pac functions
-                       // console.log("original proxy:"+proxy.host+":"+proxy.port);
+                       // //console.log("original proxy:"+proxy.host+":"+proxy.port);
                         function dnsDomainIs(host, domain) {
                             return (host.length >= domain.length &&
                             host.substring(host.length - domain.length) == domain);
@@ -281,11 +559,8 @@ if (require("sdk/private-browsing").isPrivate(b)){
                         }
 
                         function isInNet(ipaddr, pattern, maskstr) {
-                            if(ipaddr==null)
-                            {
-
-                                return true;
-                            }
+if (ipaddr==null)
+{return true;}
                             var test = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(ipaddr);
                             if (test == null) {
                                 ipaddr = dnsResolve(ipaddr);
@@ -499,18 +774,18 @@ if (require("sdk/private-browsing").isPrivate(b)){
                         }
 
                         function dnsResolve(hos) {
-                            var dnsService = Cc["@mozilla.org/network/dns-service;1"].getService(Ci.nsIDNSService);try{
-                               var ipaddr=dnsService.resolve(hos, false).getNextAddrAsString();
-                            return ipaddr;
 
-                            }
-                            catch (ex) {
-                                return null;
+                            var dnsService = Cc["@mozilla.org/network/dns-service;1"].getService(Ci.nsIDNSService);
+try{
+                           ip=dnsService.resolve(hos, false).getNextAddrAsString();
 
-
-                            }
-
-                                                    }
+return ip;
+}
+catch(ex)
+{
+return null;
+}
+                        }
 
                         function isproxyonfor(url, host) {
 
@@ -533,17 +808,19 @@ if (require("sdk/private-browsing").isPrivate(b)){
                             return proxy;
                         }
                         else {
-                           // console.log(ss.storage.bypassurls);
+
+                           //console.error(ss.storage);
                             var url = uri;
                             var path_url = url.path;
-                            var page_url = url.host + "?" + path_url.substr(0, path_url.lastIndexOf('/') != -1 ? path_url.lastIndexOf('/') : path_url.length)
-                            if (ss.storage.bypassurls.indexOf(page_url) != -1) {
-                               // console.log("block effected");
+                            var page_url = url.host + "?" + path_url.substr(0, path_url.lastIndexOf('/') != -1 ? path_url.lastIndexOf('/') : path_url.length);
+                            if (ss.storage.bypassurls.length!=0)
+{				if(ss.storage.bypassurls.indexOf(page_url) != -1) {
+                                //console.log("block effected");
                                 return proxy;
 
-                            }
+                            }}
                             //checking user bypass list
-                           // console.log(ss.storage.user_bypassurls);
+                           //console.log(ss.storage.user_bypassurls);
 
                             var i = 0;
                             for (i = 0; i < ss.storage.user_bypassurls.length; i++) {
@@ -564,6 +841,7 @@ if (require("sdk/private-browsing").isPrivate(b)){
                     }
 
                 }
+            
                 return this.filter;
             }
 
@@ -572,26 +850,7 @@ if (require("sdk/private-browsing").isPrivate(b)){
 
     }
 );
-function TracingListener() {
-}
-TracingListener.prototype = {
-    onDataAvailable: function (request, context, inputStream, offset, count) {
-       // console.log('data available');
-        this.originalListener.onDataAvailable(request, context, inputStream, offset, count);
-    },
-    onStartRequest: function (request, context) {
-        this.originalListener.onStartRequest(request, context);
-    },
-    onStopRequest: function (request, context, statusCode) {
-        this.originalListener.onStopRequest(request, context, statusCode);
-    },
-    QueryInterface: function (aIID) {
-        if (aIID.equals(Ci.nsIStreamListener) || aIID.equals(Ci.nsISupports)) {
-            return this;
-        }
-        throw Cr.NS_NOINTERFACE;
-    }
-}
+
 var httpRequestObserver = Class(
     {
         extends: Unknown,
@@ -618,17 +877,7 @@ var httpRequestObserver = Class(
 
 
             if (topic == "http-on-modify-request") {
-           
                 var httpChannel = subject.QueryInterface(Ci.nsIHttpChannel);
-                 /*var num = gBrowser.browsers.length;
-for (var i = 0; i < num; i++) {
-  var b = gBrowser.getBrowserAtIndex(i);
-  try {
-    dump(b.currentURI.spec); // dump URLs of all open tabs to console
-  } catch(e) {
-    Components.utils.reportError(e);
-  }
-}*/
                 if (httpChannel.URI.spec.substr(0, 5) != "http:") {
                     return;
                 }
@@ -654,7 +903,7 @@ for (var i = 0; i < num; i++) {
                     url = http_response.URI;
                     var path_url = url.path;
                     var page_url = url.host + "?" + path_url.substr(0, path_url.lastIndexOf('/') != -1 ? path_url.lastIndexOf('/') : path_url.length)
-                   // console.log("blocked:" + page_url);
+                    console.log("blocked:" + page_url);
                     if (ss.storage.bypassurls.indexOf(page_url) == -1) {
                         ss.storage.bypassurls.push(page_url);
                     }
@@ -737,7 +986,7 @@ for (var i = 0; i < num; i++) {
         authHeader: function () {
             var authValue = 'ac4500dd3b7579186c1b0620614fdb1f7d61f944';
             var timestamp = Date.now().toString().substring(0, 10);
-            return 'ps=' + timestamp + '-' + '0' + '-' + '0' + '-' + '0' + ', sid=' + md5(timestamp + authValue + timestamp) + ', b=2214' + ', p=115' + ', c=win';
+            return 'ps=' + timestamp + '-' + '0' + '-' + '0' + '-' + '0' + ', sid=' + md5(timestamp + authValue + timestamp) + ', b=2214' + ', p=115' + ', c=android';
         },
 
         register: function () {
@@ -777,22 +1026,22 @@ for (var i = 0; i < num; i++) {
         }
     });
 
-var savingspanel = null;
-var whitelistpanel = null;
+
 var httprequestobserver = httpRequestObserver();
 var proxy_filter = proxyfilter();
 
+function getBrowserApp() {
+
+	let window = Services.wm.getMostRecentWindow("navigator:browser");
+	return window.BrowserApp;
+
+}
 function enable_saver() {
-   // console.log(ss.storage.quota);
+
     httprequestobserver.register();
     proxy_filter.register_filter();
-    button.icon = "./ico1.png";
-    /*save_proxy_state();
-     g = google_proxy;
-     g.excludelist = prefsvc.get(proxy_exclude, "127.0.0.1,localhost");
-     set_proxy_state(g);
-     */
-
+ 
+ //console.error("enabled");
 
     ss.storage.enabled = 1;
 
@@ -800,14 +1049,12 @@ function enable_saver() {
 }
 function enable_checking(){
 
- if(ss.storage.allowinprivate==0&&ss.storage.enabled==1&&timerid==null)
-{console.log("checking enabled");
-timerid=start_checking();}
+ if(ss.storage.allowinprivate==0&&ss.storage.enabled&&timerid==null)
+{timerid=start_checking();}
 
 
 }
 function disable_checking(){
-console.log("checking disabled");
 if(timerid==null){
 return;
 }
@@ -815,13 +1062,23 @@ return;
 		  timerid=null;
 }
 
+function disable_saver() {
+
+    httprequestobserver.unregister();
+ 
+    proxy_filter.unregister_filter();
+    /*reset_proxy_state();*/
+    ss.storage.enabled = 0;
+//console.error("disabled");
+}
+var timerid=null;
 function restart_saver()
 {
 	if(ss.storage.disable_reason=="private")
 	{	
 		enable_saver();
+		enable_checking();
 		ss.storage.disable_reason="";
-		
 	}
 
 }
@@ -836,18 +1093,24 @@ events.on("last-pb-context-exited", restart_saver);
 
 function start_checking()
 {
-console.log("start_checking called");
+
 return setInterval(function() {
+function isPrivateTab(aTab) {
+  return aTab.browser.docShell.QueryInterface(Ci.nsILoadContext).usePrivateBrowsing;
+}
 
-
- console.log("check working");	
-	for (let tab of tabs){
-
-		  if(require("sdk/private-browsing").isPrivate(tab))
+if(ss.storage.allowinprivate==1)
+{return ;}
+ //console.error("checking for privatetab");
+ var tabarr=getBrowserApp().tabs;
+	for (let tab of tabarr){
+	
+		  if(isPrivateTab(tab))
 		  {
+		  //console.error("private tab detected");
 		  disable_saver();
 		  ss.storage.disable_reason="private";
-		  disable_checking();
+		 disable_checking();
 		  return;
 		   }
 	  }
@@ -855,29 +1118,22 @@ return setInterval(function() {
 }
 function toggle_private()
 {
-
+//console.error("private toggle:");
 if(ss.storage.allowinprivate)
-{ss.storage.allowinprivate=0;
+{
+ss.storage.allowinprivate=0;
 enable_checking();
-
-
+//console.error("0");
 }
 else{
 
 ss.storage.allowinprivate=1;
 disable_checking();
+//console.error("1");
 }
 
 
 }
-function disable_saver() {
-	httprequestobserver.unregister();
-    button.icon = "./ico2.png";
-    proxy_filter.unregister_filter();
-    /*reset_proxy_state();*/
-    ss.storage.enabled = 0;
-}
-
 function toggle_data_saver() {
     if (ss.storage.enabled) {
         disable_saver();
@@ -889,283 +1145,22 @@ function toggle_data_saver() {
         enable_checking();
     }
 }
-
-//adding UI 
-button = buttons.ToggleButton({
-    id: "menu-select",
-    label: "Data Saver Proxy",
-    onClick: toolbar_button_click,
-    icon: "./ico1.png"
-});
-function toolbar_button_click(state) {
-
-    if (state.checked) {
-        savingspanel = panels.Panel({
-            contentScriptFile: [data.url("stats.js")],
-            contentURL: data.url("savings.html"),
-            position: button,
-            onHide: handlehide,
-            width: 300,
-            height: 400
-        }).show();
-        savingspanel.port.on("toggle_status", function () {
-            toggle_data_saver();
-        });
-        savingspanel.port.on("toggle_private",function(){
-             toggle_private();
-        });
-
-        savingspanel.port.on("rateurl", function () {
-            tabs.open("https://addons.mozilla.org/addon/google_datasaver_for_firefox?src=external-fromaddon");
-
-        });
-        savingspanel.port.on("learnurl", function () {
-            tabs.open("http://www.advancedbytes.in");
-        })
-        savingspanel.port.on("reset_month", function () {
-            ss.storage.monthly_savings = 0;
-        });
-        savingspanel.port.on("reset_daily", function () {
-            ss.storage.daily_savings = 0;
-        });
-         savingspanel.port.on("addsite", function () {
-         savingspanel.hide();
-         /* These are TLDs that have an SLD */
-var tlds = {
-    "cy":true,
-    "ro":true,
-    "ke":true,
-    "kh":true,
-    "ki":true,
-    "cr":true,
-    "km":true,
-    "kn":true,
-    "kr":true,
-    "ck":true,
-    "cn":true,
-    "kw":true,
-    "rs":true,
-    "ca":true,
-    "kz":true,
-    "rw":true,
-    "ru":true,
-    "za":true,
-    "zm":true,
-    "bz":true,
-    "je":true,
-    "uy":true,
-    "bs":true,
-    "br":true,
-    "jo":true,
-    "us":true,
-    "bh":true,
-    "bo":true,
-    "bn":true,
-    "bb":true,
-    "ba":true,
-    "ua":true,
-    "eg":true,
-    "ec":true,
-    "et":true,
-    "er":true,
-    "es":true,
-    "pl":true,
-    "in":true,
-    "ph":true,
-    "il":true,
-    "pe":true,
-    "co":true,
-    "pa":true,
-    "id":true,
-    "py":true,
-    "ug":true,
-    "ky":true,
-    "ir":true,
-    "pt":true,
-    "pw":true,
-    "iq":true,
-    "it":true,
-    "pr":true,
-    "sh":true,
-    "sl":true,
-    "sn":true,
-    "sa":true,
-    "sb":true,
-    "sc":true,
-    "sd":true,
-    "se":true,
-    "hk":true,
-    "sg":true,
-    "sy":true,
-    "sz":true,
-    "st":true,
-    "sv":true,
-    "om":true,
-    "th":true,
-    "ve":true,
-    "tz":true,
-    "vn":true,
-    "vi":true,
-    "pk":true,
-    "fk":true,
-    "fj":true,
-    "fr":true,
-    "ni":true,
-    "ng":true,
-    "nf":true,
-    "re":true,
-    "na":true,
-    "qa":true,
-    "tw":true,
-    "nr":true,
-    "np":true,
-    "ac":true,
-    "af":true,
-    "ae":true,
-    "ao":true,
-    "al":true,
-    "yu":true,
-    "ar":true,
-    "tj":true,
-    "at":true,
-    "au":true,
-    "ye":true,
-    "mv":true,
-    "mw":true,
-    "mt":true,
-    "mu":true,
-    "tr":true,
-    "mz":true,
-    "tt":true,
-    "mx":true,
-    "my":true,
-    "mg":true,
-    "me":true,
-    "mc":true,
-    "ma":true,
-    "mn":true,
-    "mo":true,
-    "ml":true,
-    "mk":true,
-    "do":true,
-    "dz":true,
-    "ps":true,
-    "lr":true,
-    "tn":true,
-    "lv":true,
-    "ly":true,
-    "lb":true,
-    "lk":true,
-    "gg":true,
-    "uk":true,
-    "gn":true,
-    "gh":true,
-    "gt":true,
-    "gu":true,
-    "jp":true,
-    "gr":true,
-    "nz":true
-}
-
-function isSecondLevelDomainPresent(domainParts) {
-    return typeof tlds[domainParts[domainParts.length-1]] != "undefined"&&typeof tlds[domainParts[domainParts.length-2]] != "undefined";
-}
-function getDomainFromHostname(url) {
-  domainParts = url.split(".");
-  var cutOff =2;
-  if (isSecondLevelDomainPresent(domainParts)) {
-    cutOff=3;
-  }
-  
-  return domainParts.slice(domainParts.length-cutOff, domainParts.length).join(".");
-}
 /*
-var url=tabs.activeTab.url;
-var proto=url.substr(0,url.indexOf("//"))
-var first=url.substr(url.indexOf("//")+2);
-var sec=first.substr(0,first.lastIndexOf("/"));
-var suffix=sec.substr(sec.lastIndexOf(".")+1);
-
-var d=sec.substr(0,sec.lastIndexOf("."))
-
-var domain;
-if(d.lastIndexOf(".")==-1)
+if(showstatsmenu==null||addsitemenu==null)
 {
-domain=d;
+removemenu(getNativeWindow());
+addmenu(getNativeWindow());
 
-}else{domain=d.substr(d.lastIndexOf(".")+1);}*/
-
-//console.log(proto+"//"+"*."+domain+"."+suffix+"/*");
-var k=tabs.activeTab.url;
-var proto=k.substr(0,k.indexOf("//")+2);
-var first=k.substr(k.indexOf("//")+2);
-var sec=first.substr(0,first.indexOf("/"));
-var url=proto+"*."+getDomainFromHostname(sec)+"/*";
-ss.storage.user_bypassurls.push(url);
-
-
-
-
-
-        });
-        savingspanel.port.on("edit-white-list", show_whitelistpanel);
-        savingspanel.on("show", function () {
-            savingspanel.port.emit("show",
-                {
-                    t: ss.storage.total_original,
-                    s: ss.storage.total_saved,
-                    enabled: ss.storage.enabled,
-                    mbd: ss.storage.daily_savings,
-                    mbm: ss.storage.monthly_savings,
-                    allowprivate:ss.storage.allowinprivate,
-                    dreason:ss.storage.disable_reason
-                });
-        });
-    }
-
-    return;
-}
-function show_whitelistpanel() {
-
-    whitelistpanel = panels.Panel({
-        contentScriptFile: [data.url("wlist.js")],
-        contentURL: data.url("wlist.html"),
-        width: 700,
-        height: 500
-    }).show();
-
-    whitelistpanel.on("show", function () {
-        whitelistpanel.port.emit("load", {list: ss.storage.user_bypassurls});
-
-
-    });
-    whitelistpanel.port.on("update-white-list", function (data) {
-        ss.storage.user_bypassurls = data.list;
-        whitelistpanel.hide();
-
-
-    });
-
-}
-function handlehide() {
-    button.state('window', {checked: false});
-
-}
-
+}*/
 private_browsing_hook();
-//main
 if(ss.storage.enabled)
 {
 
-	    enable_saver();
-	if(ss.storage.allowinprivate==0)
-	{
-	enable_checking();
+    enable_saver();
+    enable_checking();
+    addmenu(getNativeWindow());
 
-
-	}   
 }
-
 
 
 
